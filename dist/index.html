@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f6f7fb" />
+  <title>TalkEval++ · 演讲表达复盘</title>
+  <meta name="description" content="沿着演讲时间轴，核对观点、声音与画面证据。TalkEval++ 多模态演讲复盘工作台。" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236b5ce7'/%3E%3Cpath d='M17 19h30v7H36v22h-8V26H17z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css?v=20261015-delete-1" />
+  <link rel="stylesheet" href="./replay.css" />
+  <link rel="stylesheet" href="./light-theme.css?v=20261015-delete-1" />
+  <link rel="stylesheet" href="./live-studio.css?v=20261015-delete-1" />
+  <link rel="stylesheet" href="./context-fit.css?v=20261015-delete-1" />
+  <link rel="stylesheet" href="./launch-monitor.css?v=20261022-F8" />
+</head>
+<body class="public-site">
+  <a class="skip-link" href="#detail-column">跳到分析工作区</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup" aria-label="TalkEval++ 演讲表达复盘">
+        <div class="brand-mark"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10v4m4-7v10m5-14v18m5-14v10m4-7v4"/></svg></div>
+        <div class="brand-copy"><div class="brand-name">TalkEval<span>++</span></div><div class="brand-subtitle">让表达，有据可循</div></div>
+      </div>
+      <nav class="top-nav" aria-label="工作区">
+        <button class="nav-item active" id="review-tab" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg><span>案例投放</span></button>
+        <button class="nav-item" id="live-tab" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>现场演讲</span></button>
+      </nav>
+      <div class="topbar-actions">
+        <span class="connection-pill" role="status"><span class="status-dot"></span><span id="connection-status">正在连接分析结果</span></span>
+        <button class="ghost-button icon-button" id="refresh-button" type="button" title="刷新案例" aria-label="刷新案例"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg></button>
+        <span class="workspace-avatar" aria-hidden="true">T<span>+</span></span>
+      </div>
+    </header>
+    <main class="workspace" id="review-view">
+      <section class="workspace-heading">
+        <div><p class="eyebrow">YOUR SPEECH, IN FOCUS</p><h1>从案例库，走进现场。</h1><p>选一场演讲，投放到现场观察；把重点和证据留在下方回看。</p></div>
+        <button class="outline-button focus-button" id="focus-mode" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg><span>专注模式</span></button>
+      </section>
+      <div class="content-grid">
+        <aside class="case-panel panel" aria-label="演讲案例库">
+          <div class="panel-heading"><div><p class="eyebrow">LIBRARY</p><h2>演讲案例</h2></div><span class="case-count" id="case-count">0</span></div>
+          <label class="library-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="case-search" type="search" placeholder="搜索演讲案例" aria-label="搜索演讲案例" autocomplete="off" /></label>
+          <div class="library-caption"><span>全部案例</span><span id="library-summary">正在载入</span></div>
+          <div id="case-list" class="case-list"><div class="loading-card">正在读取案例…</div></div>
+          <div class="launch-dock"><span class="launch-dock-line" aria-hidden="true"></span><small id="launch-library-state" role="status">选择一个案例，准备投放</small><button id="library-launch" type="button" disabled><span>投放到现场</span><b aria-hidden="true">↗</b></button><p>案例库 → 现场画面 → 同步提醒</p></div><div class="sidebar-foot"><span class="mini-status"></span><span>四个重点，循着证据回看</span></div>
+          <a class="source-link library-source" href="https://www.ted.com/watch/tedx-talks" target="_blank" rel="noreferrer">探索 TEDx 演讲 ↗</a>
+        </aside>
+        <section class="detail-column" id="detail-column" aria-label="演讲分析工作区">
+          <div class="empty-state panel"><div class="empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></div><h2>准备好，再听一次</h2><p>选择一个演讲案例，开始沿着证据复盘。</p></div>
+        </section>
+      </div>
+      <footer class="workspace-footer"><span><i></i>TalkEval++ · 多模态演讲表达复盘</span><span>自动分析定位线索，表达效果以原视频与人工复核为准。</span></footer>
+    </main>
+      <main class="workspace live-workspace" id="live-view" hidden>
+      <section class="live-heading"><div><p class="eyebrow">TALKEVAL STUDIO</p><h1>现场演讲工作台<span class="studio-label">LIVE</span></h1><p>把每个观点讲清楚，让声音、动作与画面一起表达。</p></div><button class="outline-button" id="coach-focus" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5h5v-5"/></svg><span>演讲专注模式</span></button></section>
+      <div class="studio-steps" aria-label="演讲流程"><div id="studio-step-prepare" class="studio-step current" aria-current="step"><span>01</span><b>准备提纲</b><small>确定这次想说的重点</small></div><i></i><div id="studio-step-live" class="studio-step"><span>02</span><b>开始演讲</b><small>画面与表达同步观察</small></div><i></i><div id="studio-step-report" class="studio-step"><span>03</span><b>查看复盘</b><small>带着具体线索再练一次</small></div><span class="studio-local"><i></i>结束后自主选择保存</span></div>
+      <div class="live-studio">
+        <aside class="coach-setup panel" aria-label="演讲准备">
+          <div class="studio-section-title"><span class="studio-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8m-8 4h5"/></svg></span><div><p class="eyebrow">BEFORE YOU SPEAK</p><h2>演讲准备</h2></div></div>
+          <div class="setup-fields"><label>参考案例<select id="coach-case"><option value="custom">自定义演讲提纲</option></select></label><label>表达目标<select id="coach-expression-goal"><option value="auto">随内容观察（推荐）</option><option value="warm">友好欢迎</option><option value="explain">平稳说明</option><option value="emphasize">突出重点</option><option value="solemn">严肃克制</option></select><small>可选，用于复核表情和动作是否服务于表达。</small></label><label>演讲主题<input id="coach-topic" maxlength="100" placeholder="这次，你想分享什么？" /></label><div class="setup-profile"><label>记忆 ID<input id="coach-speaker" maxlength="48" placeholder="我的练习" /></label><label>转写语言<select id="coach-language"><option value="zh-CN">中文</option><option value="en-US">English</option></select></label></div></div>
+          <label class="outline-label"><span>核心观点 <small id="coach-outline-count">0 个重点</small></span><textarea id="coach-outline" rows="8" placeholder="每行写下一个核心观点。&#10;&#10;例如：&#10;人工智能会改变工作内容&#10;判断力与协作能力更重要&#10;主动学习，让技术为人所用"></textarea></label>
+          <div class="outline-tip"><span>✎</span><p>一句话，一个重点。<br>把最想让听众记住的内容写在这里。</p></div>
+          <label class="privacy-consent"><input id="coach-consent" type="checkbox" /><span>同意使用摄像头、麦克风和语音转写。结束录制后，我会选择保存或丢弃；选择保存会向公开云端同步录像与报告，供所有访客查看。</span></label><details class="capture-note"><summary>采集与保存说明</summary><p>录制时只在本设备临时存放录像。结束后选择“保存并同步”才会上传录像、转写与报告；选择“不保存”会清理本场临时录像与报告。云端保存成功后可跨设备查看，失败时会明确显示仅保存在本机。浏览器语音识别可能联网处理音频。</p></details>
+          <div class="setup-ready"><i></i><span id="coach-ready-note" role="status">先写下本场核心观点</span></div>
+        </aside>
+        <section class="coach-left">
+          <section class="coach-camera panel">
+            <div class="coach-panel-head"><div><p class="eyebrow">YOUR STAGE</p><h2>现场画面</h2></div><div class="live-clock"><span class="live-led" id="coach-led"></span><span id="coach-status" role="status">准备就绪</span><strong id="coach-timer">00:00</strong></div></div>
+            <div class="coach-video-wrap"><video id="coach-video" autoplay muted playsinline></video><canvas id="coach-overlay"></canvas><div id="coach-camera-placeholder" class="coach-video-placeholder"><span class="stage-corner tl"></span><span class="stage-corner tr"></span><span class="stage-corner bl"></span><span class="stage-corner br"></span><div class="stage-portrait"><svg viewBox="0 0 200 150" fill="none" aria-hidden="true"><ellipse cx="100" cy="130" rx="74" ry="10" fill="#e6e1f3"/><rect x="29" y="9" width="142" height="112" rx="15" stroke="#d5ccec" stroke-dasharray="5 5"/><circle cx="100" cy="48" r="22" fill="#ded5f2" stroke="#9784c7" stroke-width="2"/><path d="M60 121v-17a40 40 0 0 1 80 0v17" fill="#ded5f2" stroke="#9784c7" stroke-width="2"/><path d="M77 92v29m46-29v29" stroke="#9784c7" stroke-width="2"/><path d="m148 42 10-5m-8 15h12m-14 10 10 5" stroke="#b0a0d2" stroke-width="2" stroke-linecap="round"/></svg></div><b>你的舞台，准备好了</b><small>让脸部、肩膀和手部自然留在画面内</small><span class="stage-note">看向镜头，自然表达 ↗</span></div><div class="coach-camera-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="13" height="14" rx="3"/><path d="m16 10 5-3v10l-5-3"/></svg><span id="coach-camera-mode">摄像头尚未开启</span></div></div>
+            <div class="coach-controls"><button class="primary-button" id="coach-start" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>开始演讲</span></button><button class="stop-button" id="coach-stop" disabled><span class="stop-square"></span>结束录制</button><span id="coach-speech-support" class="support-note">完成左侧准备后即可开始</span></div>
+            <div class="audio-monitor"><div><span class="audio-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></span><b>声音轨迹</b><span id="coach-wave-state">等待麦克风</span></div><canvas id="coach-audio-wave" width="640" height="44" aria-label="实时麦克风波形"></canvas></div>
+            <div class="coach-signal-grid"><div class="signal-card"><span>语速</span><strong id="coach-pace">—</strong><small>近 30 秒 · 字/分钟</small></div><div class="signal-card"><span>相对响度</span><strong id="coach-volume">—</strong><small id="coach-volume-note">相对本场基线</small></div><div class="signal-card"><span>音高</span><strong id="coach-pitch">—</strong><small>实时轻量估计</small></div><div class="signal-card"><span>语句间隔</span><strong id="coach-pause">—</strong><small>距上次识别语音</small></div></div>
+          </section>
+          <section class="studio-insights panel"><div class="studio-tabs" role="tablist" aria-label="现场辅助信息"><button type="button" id="studio-tab-transcript" role="tab" aria-selected="true" aria-controls="studio-panel-transcript" data-studio-tab="transcript">实时转写</button><button type="button" id="studio-tab-route" role="tab" aria-selected="false" aria-controls="studio-panel-route" data-studio-tab="route">观点路线图</button><button type="button" id="studio-tab-screen" role="tab" aria-selected="false" aria-controls="studio-panel-screen" data-studio-tab="screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M12 16v6m-4 0 4-4 4 4M7 11l3-3 3 2 4-4"/></svg>PPT 配合</button></div>
+            <div id="studio-panel-transcript" role="tabpanel" aria-labelledby="studio-tab-transcript" data-studio-panel="transcript"><div class="coach-transcript"><div class="coach-panel-head"><strong>每一句表达，都有迹可循</strong><span id="coach-transcript-count">0 句</span></div><p id="coach-transcript">开始后，识别到的语句会出现在这里。</p><div class="manual-entry"><input id="coach-manual-text" aria-label="手动记录演讲内容" placeholder="识别不可用时，输入刚说的内容" disabled /><button id="coach-add-text" type="button" disabled>记录语句 ↗</button></div></div></div>
+            <div id="studio-panel-route" role="tabpanel" aria-labelledby="studio-tab-route" data-studio-panel="route" hidden><div class="route-heading"><span>✎ 让观点串成一条清晰的线</span><small>根据本场提纲生成</small></div><div id="coach-route" class="coach-route"><div class="route-empty">写下核心观点，生成你的演讲路线。</div></div><p class="route-legend"><i></i>待讲述 <i></i>部分线索 <i></i>候选覆盖 · 需人工复核</p></div>
+            <div id="studio-panel-screen" role="tabpanel" aria-labelledby="studio-tab-screen" data-studio-panel="screen" hidden><section class="screen-panel"><div class="coach-panel-head"><h2>投影与观点配合</h2><span id="screen-status" class="mini-badge">未共享</span></div><div class="screen-layout"><div class="screen-preview"><video id="screen-video" autoplay muted playsinline></video><div id="screen-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M12 16v6m-4 0 4-4 4 4M7 11l3-3 3 2 4-4"/></svg><span>让画面支持你的观点</span><small>共享 PPT 窗口后显示实时预览</small></div></div><div class="screen-copy"><b id="screen-slide-label">尚未读取投影文字</b><p id="screen-current-text">演讲开始后，选择要展示的 PPT 窗口，系统会定期读取画面文字。</p><small id="screen-match-note">图表与同义表达需结合现场复核。</small></div></div><button class="secondary-button" id="share-screen" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="13" rx="2"/><path d="M12 16v6m-4 0 4-4 4 4M7 11l3-3 3 2 4-4"/></svg><span>共享 PPT 窗口</span></button><div id="screen-history" class="screen-history"></div></section></div>
+          </section>
+        </section>
+        <aside class="coach-right">
+          <section class="urgent-cue panel"><div class="assistant-label"><span class="fast-pulse"></span>此刻，关注这一点<span class="cue-channel">实时提醒</span></div><h2 id="coach-cue-title">先想清楚，再开口</h2><p id="coach-cue-copy">选择参考案例，或在左侧写下本场核心观点。</p><div class="cue-progress-line"><span id="coach-progress-text">0 / 0 个重点已检测到</span><span id="coach-active-index">待开始</span></div><div class="progress-track"><i id="coach-progress-fill"></i></div></section>
+          <section class="coach-beats panel"><div class="coach-panel-head"><div><p class="eyebrow">YOUR KEY POINTS</p><h2>本场重点进度</h2></div><span id="coach-beat-count" class="mini-badge">0 个</span></div><div id="coach-beats-list" class="coach-beat-list"></div></section>
+          <section class="visual-panel panel"><div class="coach-panel-head"><h2>表情与动作</h2><span id="visual-status" class="mini-badge">等待摄像头</span></div><p id="visual-now" class="visual-now">开始后观察面部动作与手势变化，结合当前观点提供复核线索。</p><div id="visual-point-note" class="evidence-note">先观察动作，再结合当前语句与表达目标复核。</div><div id="coach-context-fit"><p class="fit-empty">完成一句表达后，这里会给出带时间依据的适配候选。</p></div><details class="vision-details"><summary>视觉分析状态</summary><p id="coach-model-status">视觉模型将在开始后按需加载</p></details></section>
+          <details class="audience-panel panel"><summary>观众反应记录<span>⌄</span></summary><label>记录方式<select id="coach-reaction-mode"><option value="observed">现场观察</option><option value="demo">模拟信号</option></select></label><p>演讲期间可在观点卡片手动记录掌声。模拟信号会单独注明来源。</p></details>
+        </aside>
+      </div>
+      <div class="studio-aftercare"><section class="memory-panel panel"><div class="coach-panel-head"><div><p class="eyebrow">GROW WITH EVERY SPEECH</p><h2>把经验留给下一次</h2></div><span class="memory-symbol">↗</span></div><div id="coach-memory" class="memory-content"></div><div class="memory-foot"><span id="coach-memory-count">0 次历史练习</span><span>同一记忆 ID 关联历史练习</span></div></section><section class="saved-sessions panel"><div class="coach-panel-head"><div><p class="eyebrow">YOUR SPEECH JOURNAL</p><h2>历史演讲复盘</h2></div><div class="saved-session-status"><button id="coach-refresh-history" class="history-refresh" type="button" aria-label="刷新云端历史">↻ 刷新</button><span id="cloud-session-status" class="mini-badge">正在连接云端…</span><span id="saved-session-count" class="mini-badge">0 场</span></div></div><p id="coach-history-feedback" class="history-feedback" role="status" aria-live="polite"></p><div id="pending-deletions" class="pending-deletions" aria-live="polite" hidden></div><div id="saved-session-list" class="saved-session-list"></div></section></div>
+      <aside id="coach-draft-banner" class="draft-banner" hidden><div><b>本场录制尚未保存</b><p>可以先看报告，再决定是否保留。保存后才会公开同步。</p></div><div class="draft-actions"><button class="secondary-button" data-draft-action="discard">不保存</button><button class="primary-button" data-draft-action="choose">选择保存方式</button></div></aside>
+      <section id="coach-report" class="coach-report panel" hidden><div class="coach-panel-head"><div><p class="eyebrow">SESSION SUMMARY</p><h2>本场演讲报告</h2></div><div class="report-actions"><button id="coach-copy-report" class="secondary-button">复制报告</button><button id="coach-download-report" class="secondary-button">下载文字</button><button id="coach-download-json" class="secondary-button">导出复盘 JSON</button></div></div><div id="coach-report-overview" class="session-overview"></div><div id="coach-replay-detail" class="coach-replay-detail"></div><details class="full-report"><summary>展开完整文字报告 <span>内容、声音、动作、PPT 与练习建议</span></summary><textarea id="coach-report-text" rows="12" readonly aria-label="完整演讲复盘报告"></textarea></details></section>
+      <footer class="workspace-footer"><span><i></i>TalkEval++ · 每一次表达，都值得被看见</span><span>自动观察提供线索，表达效果由你复核。</span></footer>
+    </main>
+  </div>
+  <dialog id="evidence-lightbox" class="evidence-lightbox" aria-labelledby="lightbox-caption"><div class="lightbox-bar"><p id="lightbox-caption">演讲证据画面</p><button type="button" id="lightbox-close" aria-label="关闭放大画面">关闭 ×</button></div><img id="lightbox-image" alt="演讲证据画面" /></dialog>
+  <script src="./hls.min.js"></script>
+  <script src="./context-fit.js?v=20261015-delete-1"></script>
+  <script src="./stage-engine.js?v=20261022-F8"></script>
+  <script src="./launch-monitor.js?v=20261022-F8"></script>
+  <script src="./replay.js?v=20261022-F8"></script>
+  <dialog id="coach-save-dialog" class="session-dialog" aria-labelledby="coach-save-title" aria-describedby="coach-save-summary coach-save-progress">
+    <div class="dialog-symbol" aria-hidden="true">✓</div><p class="eyebrow">YOUR SESSION, YOUR CHOICE</p><h2 id="coach-save-title">本场演讲，留下来吗？</h2><p id="coach-save-summary" class="dialog-summary"></p>
+    <div class="dialog-info"><b>保存录像与分析报告</b><p>选择保存后，将同步到公开云端。其他设备和访客也可以查看这场演讲。</p></div>
+    <p id="coach-save-progress" class="dialog-status" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button class="secondary-button" data-draft-action="discard">不保存，丢弃本次</button><button class="primary-button" data-draft-action="save">保存并同步</button></div>
+    <button class="dialog-preview" data-draft-action="preview" autofocus>先查看复盘，再决定 ↗</button>
+  </dialog>
+  <dialog id="coach-delete-dialog" class="session-dialog" aria-labelledby="coach-delete-title" aria-describedby="coach-delete-description">
+    <div class="dialog-symbol danger" aria-hidden="true">−</div><p class="eyebrow">MANAGE YOUR SPEECH JOURNAL</p><h2 id="coach-delete-title">删除这场演讲？</h2><p id="coach-delete-description" class="dialog-summary"></p>
+    <p id="coach-delete-status" class="dialog-status" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="coach-delete-cancel" class="secondary-button" autofocus>保留记录</button><button id="coach-delete-confirm" class="danger-button">删除录像与报告</button></div>
+    <div class="delete-local-option"><button id="coach-delete-local" class="secondary-button" type="button" hidden>先删除本机，云端待删</button><p id="coach-delete-local-note" hidden>本机录像与报告将立即清理，无法恢复。云端未确认删除前，其他设备可能仍可见；网页将保留待删请求，在恢复连接后重试。</p></div>
+  </dialog>
+  <script src="./live.js?v=20261022-F8"></script>
+</body>
+</html>
