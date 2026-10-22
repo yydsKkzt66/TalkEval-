@@ -1,0 +1,90 @@
+name: Publish complete TalkEval site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Read your uploaded changes
+        uses: actions/checkout@v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Read the original public assets at a fixed version
+        uses: actions/checkout@v6.1.0
+        with:
+          repository: YuhanHao0126/talkeval-speech-review
+          ref: fdaf014dddb38240f0e9d7754107b3de69615050
+          path: _upstream
+          sparse-checkout: docs
+          persist-credentials: false
+
+      - name: Combine original assets and your new interface
+        shell: bash
+        run: |
+          mkdir -p _site
+          cp -a _upstream/docs/. _site/
+          cp -a docs/. _site/
+          touch _site/.nojekyll
+
+      - name: Check required pages and all ten cases
+        shell: python
+        run: |
+          from pathlib import Path
+          from urllib.parse import urlsplit, unquote
+          import json, re
+          root = Path('_site').resolve()
+          def check(relative):
+              path = (root / unquote(urlsplit(relative).path)).resolve()
+              assert path.is_relative_to(root) and path.is_file(), f'Missing file: {relative}'
+              return path
+          html = check('index.html').read_text(encoding='utf-8-sig')
+          assert 'launch-monitor.js' in html and 'library-launch' in html, 'New interface missing'
+          for url in re.findall(r'(?:src|href)=[\'"]([^\'"]+)', html):
+              if url.startswith('./'): check(url)
+          cases = json.loads(check('data/cases.json').read_text(encoding='utf-8-sig'))['cases']
+          assert len(cases) == 10, 'Expected ten original cases'
+          for case in cases:
+              cid = case['case_id']
+              check(f'data/cases/{cid}.json')
+              check(f'stage-semantic/{cid}.json')
+              check(f'visuals/{cid}/notes.svg')
+              check(f'visuals/{cid}/mindmap.svg')
+              if case.get('video_format') == 'hls':
+                  playlist = check(case['video_url'])
+                  for line in playlist.read_text().splitlines():
+                      if line and not line.startswith('#'):
+                          check(str((playlist.parent / line).relative_to(root)))
+          print('Verified new interface, ten case files, notes, semantic data and all HLS segments.')
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the complete website
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy to your own Pages address
+        id: deployment
+        uses: actions/deploy-pages@v4
