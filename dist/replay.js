@@ -1,7 +1,7 @@
-(() => {
+﻿(() => {
 "use strict";
 const state = {
-  cases: [], selectedCase: null, selectedBeat: null,
+  cases: [], builtinCases: [], recordingUrl:null, selectedCase: null, selectedBeat: null,
   hls: null, visuals: {}, data: null, search: "", requestId: 0,
   live: { caseData: null, session: null, lastSession: null, stream: null, recognition: null, audioContext: null, analyser: null, raf: 0, levels: [], startedAt: 0, stoppedByUser: false, interim: "", lastFinalAt: 0 },
 };
@@ -25,6 +25,7 @@ const verdictClass = (verdict) => {
 };
 
 function sourceReviewLabel(source, scriptType) {
+  if (source === "saved_live_session") return "现场录制 · 保存的提纲";
   if (source === "provided_script_or_outline") return "文稿已匹配";
   if (["sidecar_captions", "embedded_video_subtitles"].includes(source)) return "视频字幕已匹配";
   if (source === "faster_whisper_transcription" || scriptType === "transcript_proxy") return "无讲稿 · 转写提取";
@@ -33,6 +34,7 @@ function sourceReviewLabel(source, scriptType) {
 }
 
 function sourceReviewDetail(metadata) {
+  if(metadata.script_source === "saved_live_session") return "演讲者录制时填写的提纲与实际转写；可随录像复核。";
   const source = metadata.script_source;
   if (source === "provided_script_or_outline") {
     const name = metadata.source_script_name || metadata.script_file || "已匹配讲稿/大纲";
@@ -45,7 +47,7 @@ function sourceReviewDetail(metadata) {
 
 const pct = (value) => `${Math.round(Math.max(0, Math.min(1, Number(value || 0))) * 100)}%`;
 const time = (seconds) => {
-  if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return "未定位";
+  if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return "未定位";
   const total = Number(seconds);
   const minutes = Math.floor(total / 60);
   const secs = (total % 60).toFixed(1).padStart(4, "0");
@@ -71,7 +73,7 @@ function renderCaseList() {
     const located = (counts.sufficiently_realized || 0) + (counts.partially_realized || 0);
     return `<button class="case-button ${state.selectedCase === item.case_id ? "active" : ""}" data-case="${esc(item.case_id)}" aria-pressed="${state.selectedCase === item.case_id}">
       <span class="case-cover cover-${index % 5}">${state.visuals?.[item.case_id]?.poster ? `<img src="${esc(state.visuals[item.case_id].poster)}" alt="" loading="lazy" />` : "▷"}<small>${String(index + 1).padStart(2,"0")}</small></span>
-      <span class="case-copy"><span class="case-title">${esc(item.title || item.case_id)}</span><span class="case-speaker">${total} 个核心观点 · ${located} 个已定位</span><span class="case-source">${esc(sourceReviewLabel(item.script_source, item.script_type))}</span></span>
+      <span class="case-copy"><span class="case-title">${esc(item.title || item.case_id)}</span><span class="case-speaker">${total} 个核心观点 · ${located} 个已定位</span><span class="case-source">${esc(item.sessionId ? (item.shared?"共享现场演讲":"仅本机 · 待同步")+(item.videoReady?" · 可投放":" · 仅报告") : sourceReviewLabel(item.script_source, item.script_type))}</span></span>
       <span class="case-selected-mark" aria-hidden="true">›</span>
     </button>`;
   }).join("") || `<div class="loading-card">${query ? "没有找到匹配的演讲，试试其他关键词。" : "暂无演讲案例"}</div>`;
@@ -579,6 +581,7 @@ function renderDetail(data) {
   const imagePanel = (kind) => {
     const notebook = kind === "notes";
     const src = notebook ? visual.notes_url : visual.map_url;
+    if(!src && metadata.script_source==='saved_live_session')return `<div class="shared-point-grid">${(data.intent_map.beats || []).map((b,i)=>{const d=decisions.find(d=>d.beat_id===b.beat_id),u=data.expression_map.units.find(u=>(d?.evidence_ids || []).includes(u.observed_id));return `<article><small>重点 ${i+1}</small><h3>${esc(b.target_meaning)}</h3><p>${u?'已记录原话：'+esc(u.text):'尚未找到对应的转写线索，可结合录像核对。'}</p>${d?.actual_time_span?`<button data-start="${d.actual_time_span[0]}">回看 ${time(d.actual_time_span[0])} ↗</button>`:''}</article>`;}).join('')}</div>`;
     if (!src) return '<p class="loading-card">此案例尚无图解，可使用同步转写回看。</p>';
     return `<div class="visual-panel-tools"><span>${notebook ? "✎ 观点整理 · 真实视频截图" : "四个分支，看见整场表达结构"}</span><div><button type="button" data-preview-image="${esc(src)}" data-preview-caption="${esc(title)} · ${notebook ? "图解笔记" : "观点导图"}">放大 ↗</button><a href="${esc(src)}" download="${esc(data.case_id)}-${kind}.svg">下载${notebook ? "笔记" : "导图"} ↓</a></div></div><div class="${notebook ? "notebook-sheet" : "point-map"}"><img src="${esc(src)}" alt="${esc(title)}的${notebook ? "图解笔记" : "四个观点思维导图"}" loading="lazy" /><div class="visual-hotspots">${(visual.beats || []).map((note,i) => `<button type="button" class="visual-hotspot ${notebook ? "note" : "branch"}-${i}" data-start="${note.time}" aria-label="回看图解中的观点 ${i+1}：${esc(note.note_title)}" title="回看：${esc(note.note_title)}"></button>`).join("")}</div></div>`;
   };
@@ -598,6 +601,18 @@ function renderDetail(data) {
       </section>
       <section class="case-analysis-column"><section class="decisions-panel panel"><div class="panel-heading"><div><p class="eyebrow">CORE POINTS</p><h3>重点传达到位了吗？</h3></div><span class="case-count">${decisions.length}</span></div><div class="review-tools"><span>逐条回看 · 核对表达证据</span><button class="outline-button" id="export-context-fit" type="button">↓ 语境复核</button><button class="outline-button" id="export-annotations" type="button">↓ 导出标注</button></div><div class="review-note"><span>i</span><p>机器判定为初筛结果，点击画面回看；展开卡片核对完整证据与人工标注。</p></div><div class="decision-list">${cards || '<p class="loading-card">没有判定结果</p>'}</div><div class="review-bottom"><span id="annotation-status">已有人工标注 ${reviewed}/${decisions.length}</span><span>保存于当前浏览器</span></div></section></section>
     </div>`;
+  if(data.saved_session){
+    const saved=data.saved_session,a=saved.assets,section=document.createElement('details');section.id='saved-case-bundle';section.className='saved-case-bundle';
+    const counts=[['演讲重点',a.points],['转写语句',a.transcript],['声音采样',a.audio],['动作样本',a.visual],['时间线事件',a.timeline],['PPT 文字',a.slides],['语境记录',a.contextFits]];
+    const events=saved.timeline.slice(-100).map(item=>`<button type="button" data-start="${Number(item.at)||0}"><time>${time(item.at)}</time><span>${esc(item.text || item.pointText || [item.visual?.face,item.visual?.gesture].filter(Boolean).join('；') || item.type)}</span></button>`).join('');
+    section.innerHTML=`<summary><b>本场配套资料已装载</b><span>${a.points} 个重点 · ${a.transcript} 句转写 · ${a.report?'含原场报告':'无原场报告'}　展开 ↓</span></summary><div class="saved-bundle-counts">${counts.map(([label,count])=>`<span>${label}<b>${count || '未记录'}</b></span>`).join('')}</div><p>${a.plan?'已沿用原场限时、重点优先级、截止时间和提醒设置。':'已带入保存的提纲；未保存的原场计划使用默认安排，可在慢通道中调整。'} 回放只按当前播放进度释放证据。</p><p>${a.audio?'已带入声音采样。':'这条记录未保存声音采样；保留已有的转写计时，缺失指标不补造。'} ${a.visual?'已带入动作与面部可见特征样本。':'未记录动作样本，本次回放不作动作纠正。'}</p>${saved.expressionGoal?`<p>原场表达目标：${esc(TalkEvalFit.GOALS[saved.expressionGoal] || saved.expressionGoal)}</p>`:''}<details><summary>原场时间线（最近 ${Math.min(100,a.timeline)} 条）</summary><div class="saved-bundle-events">${events || '<p>本场没有时间线事件。</p>'}</div></details><details><summary>PPT 文字与原场提醒存档</summary>${saved.slides.slice(-100).map(s=>`<p><button data-start="${Number(s.at)||0}">${time(s.at)}</button> ${esc(s.text || '未识别到文字')}</p>`).join('') || '<p>本场未记录 PPT 文字。</p>'}${saved.fastReminders.map(r=>`<p>${time(r.at)} · ${esc(r.title)}：${esc(r.reason)}</p>`).join('')}</details><p class="saved-bundle-note">原场报告和提醒供场后核对；右侧快慢通道按播放到的证据重新判断。</p>`;
+    document.querySelector('#detail-header').after(section);
+  }
+  if(data.saved_report){
+    const report=document.createElement('details');report.id='saved-live-report';report.className='lm-archive';report.innerHTML='<summary>本场保存的完整报告</summary><pre style="white-space:pre-wrap;font:inherit;font-size:12px;line-height:1.8;overflow-wrap:anywhere"></pre>';report.querySelector('pre').textContent=data.saved_report;
+    document.querySelector('#detail-column').append(report);
+    const link=document.querySelector('.report-link');link.href='#saved-live-report';link.removeAttribute('target');link.addEventListener('click',()=>{report.open=true;});
+  }
   state.transcriptRows = new Map([...document.querySelectorAll(".transcript-row")].map(row => [row.dataset.transcriptId, row]));
   state.activeTranscriptRow = null;
   document.querySelector("#detail-column").onclick = event => {
@@ -675,7 +690,7 @@ function renderDetail(data) {
     const isCurrentVideo = () => caseVideo === document.querySelector("#case-video") && state.selectedCase === data.case_id;
     caseVideo.addEventListener("loadedmetadata", () => {
       if (!isCurrentVideo()) return;
-      document.querySelector("#case-duration").textContent = time(caseVideo.duration);
+      document.querySelector("#case-duration").textContent = time(Number.isFinite(caseVideo.duration) && caseVideo.duration>0 ? caseVideo.duration : caseDuration(data));
       if (state.pendingSeek?.caseId === data.case_id) {
         const target = state.pendingSeek.seconds;
         caseVideo.currentTime = Number.isFinite(caseVideo.duration) ? Math.min(target,caseVideo.duration) : target;
@@ -696,7 +711,8 @@ function renderDetail(data) {
 }
 
 function updateCasePlayback(data, seconds) {
-  const duration = Number(document.querySelector("#case-video")?.duration || caseDuration(data));
+  const nativeDuration=Number(document.querySelector("#case-video")?.duration);
+  const duration = Number.isFinite(nativeDuration) && nativeDuration>0 ? nativeDuration : caseDuration(data);
   const current = Math.max(0, Number(state.pendingSeek?.caseId === data.case_id ? state.pendingSeek.seconds : seconds || 0));
   const progress = duration ? Math.min(100, current / duration * 100) : 0;
   const decisions = data.alignment?.decisions || [];
@@ -779,7 +795,10 @@ async function selectCase(caseId) {
   renderCaseList();
   document.querySelector("#detail-column").innerHTML = `<div class="loading-card panel">正在读取案例证据…</div>`;
   try {
-    const data = await getJson(`./data/cases/${encodeURIComponent(caseId)}.json`);
+    if(state.recordingUrl){URL.revokeObjectURL(state.recordingUrl);state.recordingUrl=null;}
+    const saved=caseId.startsWith('recording_') ? await TalkEvalShared.loadCase(caseId) : null;
+    const data = saved ? saved.data : await getJson(`./data/cases/${encodeURIComponent(caseId)}.json`);
+    if(saved?.objectUrl){if(requestId!==state.requestId){URL.revokeObjectURL(data.video_url);return;}state.recordingUrl=data.video_url;}
     if (requestId !== state.requestId) return;
     renderDetail(data);
     document.querySelector("#connection-status").textContent = "分析结果已连接";
@@ -793,7 +812,8 @@ async function loadCases() {
   try {
     const [data, visuals] = await Promise.all([getJson("./data/cases.json"), getJson("./visuals/manifest.json").catch(() => ({}))]);
     state.visuals = visuals;
-    state.cases = data.cases || [];
+    state.builtinCases = data.cases || [];
+    state.cases = [...TalkEvalShared.sessions().map(TalkEvalShared.summary),...state.builtinCases];
     renderCaseList();
     document.querySelector("#connection-status").textContent = `已连接 · ${state.cases.length} 个案例`;
     if (!state.selectedCase && state.cases.length) selectCase(state.cases[0].case_id);
@@ -803,6 +823,15 @@ async function loadCases() {
   }
 }
 
+window.addEventListener('talkeval:sessions',event=>{
+  state.cases=[...event.detail.sessions.map(TalkEvalShared.summary),...state.builtinCases];renderCaseList();
+  if(state.selectedCase?.startsWith('recording_') && !state.cases.some(c=>c.case_id===state.selectedCase)){
+    window.TalkEvalLaunch?.disposeReplay();document.querySelector('#case-video')?.pause();
+    if(state.recordingUrl){URL.revokeObjectURL(state.recordingUrl);state.recordingUrl=null;}
+    state.selectedCase=null;document.querySelector('#detail-column').innerHTML='<div class="loading-card panel">这场演讲已从案例库移除。</div>';
+  }
+});
+window.TalkEvalReplay={selectCase,refresh:loadCases};
 document.querySelector("#lightbox-close").addEventListener("click",() => document.querySelector("#evidence-lightbox").close());
 document.querySelector("#evidence-lightbox").addEventListener("click",event => { if (event.target === event.currentTarget) event.currentTarget.close(); });
 document.querySelector("#case-search").addEventListener("input", event => { state.search = event.target.value; renderCaseList(); });
@@ -812,6 +841,7 @@ document.querySelector("#focus-mode").addEventListener("click", event => {
   event.currentTarget.querySelector("span").textContent = active ? "退出专注" : "专注模式";
 });
 document.querySelector("#refresh-button").addEventListener("click", async () => {
+  await TalkEvalShared.refresh();
   await loadCases();
   if (state.selectedCase) await selectCase(state.selectedCase);
 });

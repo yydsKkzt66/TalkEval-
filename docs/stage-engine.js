@@ -2,7 +2,7 @@
 (function (root) {
   "use strict";
   const VERSION = "stage-1.0";
-  const MONITOR_BUILD = "F8";
+  const MONITOR_BUILD = "F10";
   const FAST_WINDOW = 8;
   const FAST_PROFILES = {
     standard:{high:340,low:150,pause:3.5,volume:.65,pitch:1.8},
@@ -164,7 +164,7 @@
     const recent=beats.filter(b=>!b.manual && b.semantic && t-b.semantic.at>=0 && t-b.semantic.at<=10)
       .flatMap(b=>b.semantic.facets.filter(f=>f.state==="conflict" && f.evidence && t-f.evidence.end>=0 && t-f.evidence.end<=12).map(f=>({beat:b,facet:f})))
       .sort((a,b)=>b.facet.evidence.end-a.facet.evidence.end)[0];
-    if(recent) {const numeric=recent.facet.issues.some(x=>x.includes("数字"));return {...wrap({code:"fact",beatId:recent.beat.id,title:numeric?"核对数字":"核对表述",reason:`刚才 ${clock(recent.facet.evidence.end)} 的表达与 ${recent.beat.id} 有待核对项：${recent.facet.issues.join("；")}。请看证据后确认。`,severity:2,priority:80}),observedAt:recent.facet.evidence.end};}
+    if(recent) {const issues=recent.facet.issues || [],numeric=issues.some(x=>x.includes("数字"));return {...wrap({code:"fact",beatId:recent.beat.id,title:numeric?"核对数字":"核对表述",reason:`刚才讲到「${shortMeaning(goalLabel(recent.beat.title),18)}」，${issues.join("；") || '关键含义待核对'}。核对「${shortMeaning(recent.facet.claim,35)}」后再展开。`,severity:2,priority:80}),observedAt:recent.facet.evidence.end};}
     if(!fresh || m.sampleCount<2 || !finite(m.pace)) return wrap({code:"waiting",title:"等待语音",reason:`等待最近 ${window} 秒内已结束且可靠的语音片段，暂不判断当前表达。`,severity:0,priority:0});
     const candidates=[];
     if(pace.kind==="fast") {
@@ -181,6 +181,70 @@
     candidates.sort((a,b)=>b.priority-a.priority);
     if(candidates.length)return wrap(candidates[0],candidates.slice(1));
     return wrap({code:"steady",title:"保持节奏",reason:`近 ${window} 秒 ${pace.pace} 字/分，在本场参考范围 ${rules.low}–${rules.high} 内。保持当前节奏，按意思自然停顿。`,severity:0,priority:0});
+  }
+  // Content is checked over a longer window than pace. Failure to match is
+  // uncertainty, never proof of being off topic; introductions get time to develop.
+  function contentCue(beats,units,t,slow) {
+    const recent=units.filter(u=>u.time_span[1]<=t && u.time_span[1]>t-30 && Number(u.reliability?.text || 0)>=.6);
+    const last=recent.at(-1),next=slow.queue.find(b=>b.allocatedSeconds>0),label=b=>shortMeaning(goalLabel(b?.title),16);
+    const base={code:"content-waiting",kind:"waiting",title:"先听完整一句",status:"内容待观察",reason:"等一句可靠的完整表达，再看与重点的联系。",severity:0,priority:0,observedAt:last?.time_span[1] ?? t,beatId:null,window:30};
+    if(!last || t-last.time_span[1]>6 || clean(recent.map(u=>u.text).join('')).length<8)return base;
+    if(!beats.length)return {...base,kind:"no-outline",status:"尚未设置重点",reason:"先设置想讲清的重点，再判断内容是否贴合；声音监测照常进行。"};
+    const localUnits=recent.filter(u=>u.time_span[1]>t-20);
+    const fresh=end=>finite(end) && end<=t && t-end<=12 && last.time_span[1]-end<=8;
+    const windows=textWindows(localUnits).filter(w=>fresh(w.end));
+    const candidates=[];
+    for(const b of beats) {
+      const facets=b.semantic?.facets.filter(f=>f.evidence && fresh(f.evidence.end) && ['supported','related','conflict'].includes(f.state)) || [];
+      const facet=facets.sort((a,b)=>b.evidence.end-a.evidence.end)[0];
+      const claim=b.claims.map(c=>windows.map(w=>{const score=overlap(c.text,w.tokens),guard=score>=.72?guardMeaning(c.text,w.text):'';return {end:w.end,length:w.text.length,score,guard,matched:score>=.78 && !guard};})
+        .sort((a,b)=>Number(b.matched)-Number(a.matched) || b.score-a.score || a.length-b.length || b.end-a.end)[0])
+        .filter(c=>c?.score>=.55).sort((a,b)=>b.end-a.end || b.score-a.score)[0];
+      // Cumulative caches may retain an older best excerpt. Fresh lexical
+      // correspondence can still show relevance, but cannot add semantic support.
+      if(!facet && !claim)continue;
+      candidates.push({beat:b,facet,claim,at:facet?.evidence.end ?? claim.end,strength:facet?({supported:3,conflict:2,related:1})[facet.state]:claim.score});
+    }
+    candidates.sort((a,b)=>b.at-a.at || b.strength-a.strength);
+    const focus=candidates[0];
+    const duration=recent.reduce((n,u)=>n+Math.max(0,u.time_span[1]-Math.max(t-30,u.time_span[0])),0);
+    // At least three substantially repeated utterances, spanning 12 seconds.
+    // A deliberate second emphasis alone must not trigger a repetition warning.
+    const text=clean(last.text),duplicates=text.length>=10?recent.filter(u=>clean(u.text).length>=10 && Math.min(overlap(last.text,gram(u.text)),overlap(u.text,gram(last.text)))>=.82):[];
+    const repeating=duplicates.length>=3 && duplicates.at(-1).time_span[1]-duplicates[0].time_span[1]>=12;
+    if(focus) {
+      const b=focus.beat,target=label(b),quote=`「${target}」`;
+      const common={...base,beatId:b.id,target,status:`相关 · ${target}`,observedAt:focus.at,sticky:true,basis:focus.facet?'语义证据':'文字对应'};
+      const conflict=focus.facet?.state==='conflict' || (!focus.facet && focus.claim?.guard);
+      if(conflict)return {...common,code:'content-check',kind:'check',title:'核对关键表述',status:`待核对 · ${target}`,reason:`刚才已讲到${quote}，${focus.facet?.issues?.join('；') || focus.claim?.guard || '关键含义仍需核对'}。确认这一句后再展开。`,severity:2,priority:80};
+      const firstTimes=b.semantic?b.semantic.facets.filter(f=>f.state==='supported').map(f=>f.first_supported_at):b.claims.filter(c=>c.matched).map(c=>c.firstMatchedAt);
+      const advancing=firstTimes.some(at=>finite(at) && at<=t && t-at<=20);
+      const missing=b.semantic?.facets.find(f=>f.state!=='supported')?.claim || b.claims.find(c=>!c.matched)?.text;
+      if(repeating && !advancing)return {...common,code:'content-repeat',kind:'repeat',title:'收束这一点',status:`近期表达重复 · ${target}`,reason:`近 30 秒已有三句高度相似的表达。用一句话收住${quote}${next && next.id!==b.id?`，再转向「${label(next)}」`:'，再补一个新信息或例证'}。`,severity:1,priority:55};
+      if(complete(b))return {...common,code:'content-covered',kind:'covered',title:next?'转入下一点':'重点已齐',status:`本点已覆盖 · ${target}`,reason:`${quote}${b.status==='confirmed'?'已由你确认讲清':b.semantic?'必要含义已有支持':'预设文字已有对应'}。${next?`收住这一句，接着讲「${label(next)}」。`:'保持连贯，用一句话回扣主题。'}`,priority:10};
+      if(!advancing && duration>=18 && recent.length>=4 && missing)return {...common,code:'content-complete',kind:'complete',title:'补清关键一句',status:`相关，待补清 · ${target}`,reason:`仍在展开${quote}。可补清「${shortMeaning(missing,34)}」；这是尚未核实的含义，如已说清可在下方确认。`,severity:1,priority:55};
+      return {...common,code:'content-progress',kind:advancing?'progress':'linked',title:advancing?'贴题推进':'继续展开',status:`${advancing?'新增含义':'内容相关'} · ${target}`,reason:`刚才的内容对应${quote}。${advancing?'已有新的含义得到支持，保持连贯。':'继续把这一点说完整。'}${missing?`接着说明「${shortMeaning(missing,32)}」。`:''}`,priority:10};
+    }
+    const known=beats.some(b=>b.claims.some(c=>c.matched) || b.semantic?.supported>0);
+    const sustained=t>=45 && duration>=18 && recent.length>=4 && [0,1,2].every(i=>recent.some(u=>u.time_span[1]>t-30+i*10 && u.time_span[1]<=t-20+i*10));
+    // A recent semantic connection or a recognisable outline phrase protects
+    // examples/transitions from a premature "return to topic" interruption.
+    const context=gram(recent.map(u=>u.text).join(' '));
+    const related=beats.find(b=>b.semantic?.facets.some(f=>f.evidence?.end>t-30 && f.evidence.end<=t && ['supported','related'].includes(f.state)) || [b.title,b.brief].some(s=>gram(s).size>=3 && overlap(s,context)>=.4));
+    if(sustained && !related)return {...base,code:'content-bridge',kind:'bridge',title:known?'回扣主题':'点明主旨',status:'与重点的联系待说明',beatId:next?.id || null,reason:`近 30 秒的可靠表达尚未找到与预设重点的明确联系。${next?`可用一句话接回「${label(next)}」；`:'可用一句话点明本段与主题的关系；'}若在举例，先说明例子要证明什么。`,severity:1,priority:55,sticky:true};
+    return {...base,code:'content-context',kind:'context',title:related?'说明关联':'继续铺垫',status:related?`相关背景 · ${label(related)}`:'铺垫或转场，继续观察',reason:related?`正在展开与「${label(related)}」相关的背景。下一句点明它要说明什么。`:`这段与重点的联系还需继续听。${next?`铺垫后点明「${label(next)}」。`:'接着说出本段的核心意思。'}`,priority:5,sticky:true,beatId:related?.id || next?.id || null};
+  }
+  function combineFastCue(audio,content) {
+    const enriched={...audio,content};
+    if(audio.priority>=80)return enriched;
+    const paceWarning=['pace','slow'].includes(audio.code),linked=['progress','linked','covered'].includes(content.kind);
+    if(paceWarning) {
+      const title=content.severity>0?content.title:linked?(audio.code==='pace'?'贴题，稍放慢':'贴题，连贯讲'):audio.title;
+      return {...enriched,title,reason:content.kind==='waiting'?audio.reason:`${content.reason} ${audio.reason}`,actionKey:`${audio.code}:${content.code}:${content.beatId || ''}`,priority:Math.max(audio.priority,content.priority)};
+    }
+    if(content.priority>audio.priority || ['waiting','steady'].includes(audio.code) && content.kind!=='waiting')return {...content,content,retainCodes:audio.retainCodes,alternatives:audio.code==='steady'?[audio]:audio.alternatives,
+      reason:content.reason+(audio.code==='steady'?` 近 8 秒 ${audio.reason.match(/\d+ 字\/分/)?.[0] || ''}，语速适中。`:''),actionKey:`${content.code}:${content.kind}:${content.beatId || ''}`};
+    return enriched;
   }
   function schedule(beats,t,limit,baseline) {
     const remaining=limit-t, reserve=Math.min(20,limit*.08), budget=Math.max(0,Math.floor(remaining-reserve));
@@ -222,6 +286,57 @@
     return chars.length>32?chars.slice(0,16).join("")+"…"+chars.slice(-15).join(""):chars.join("");
   }
   function contentReview(beats,units,t,slow) {
+    const raw=contentReviewEvidence(beats,units,t,slow);
+    const focus=beats.find(b=>b.id===raw.focusId), target=focus || slow.queue.find(b=>b.allocatedSeconds>0) || slow.queue[0],allCovered=beats.length>0 && beats.every(complete);
+    const label=b=>shortMeaning(goalLabel(b?.title),18), quote=text=>`「${shortMeaning(text,42)}」`;
+    const goal=target?.brief || target?.claims.map(c=>c.text || c).join('；') || (allCovered?'用一句话回扣本场主题。':'');
+    const first=goal.split(/[，。；]/).map(x=>x.trim()).find(Boolean) || '';
+    // Existing outline summaries are planned goals, not evidence of what was said.
+    const headline=target?.brief && Array.from(first).length<=20 && !/^(用|把|将|通过|对于|关于)/.test(first) ? first : label(target);
+    const recent=units.filter(u=>u.time_span[1]<=t && u.time_span[1]>Math.max(0,t-30) && Number(u.reliability?.text || 0)>=.6);
+    const fresh=recent.at(-1) && t-recent.at(-1).time_span[1]<=12;
+    const excerpt=raw.excerpt || (fresh?shortMeaning(recent.slice(-2).map(u=>u.text).join(' '),90):'');
+    const labels={confirmed:'人工已确认',supported:'本点已有支持',partial:'部分对齐',conflict:'表述待核对',unmatched:'尚未对齐',waiting:'等待本段表达'};
+    const statuses=beats.map(b=>({id:b.id,title:label(b),state:b.status,status:b.status==='confirmed'?'已确认':complete(b)?'已对齐':b.status==='conflict'?'待核对':b.status==='partial'?'部分对齐':'待观察'}));
+    let alignment='',missing='';
+    if(!target)alignment=allCovered?'本场各重点已有支持或人工确认，可以收束。':'先设置本场想表达的重点，再对照当前内容。';
+    else if(!focus) {
+      alignment=fresh?'刚才的原话尚未与这个重点建立足够联系；它是接下来要核对的目标。':'当前没有足够新近的可靠语句，先展示接下来要讲的目标。';
+      missing=`待衔接：${shortMeaning(goal,78)}`;
+    } else if(focus.manual && complete(focus)) {
+      alignment='这一重点已由你确认讲清；最近相关原话见上方。';
+      missing=slow.queue.length?`下一项：${label(slow.queue.find(b=>b.allocatedSeconds>0) || slow.queue[0])}`:'本场重点均已确认，可以回扣主题。';
+    } else if(focus.semantic?.facets.length) {
+      const facets=focus.semantic.facets, supported=facets.filter(f=>f.state==='supported'), conflicts=facets.filter(f=>f.state==='conflict'), rest=facets.filter(f=>!['supported','conflict'].includes(f.state));
+      alignment=supported.length?`本点累计 ${supported.length}/${facets.length} 条含义已有支持：${supported.slice(0,2).map(f=>quote(f.claim)).join('、')}`:'已出现相关表达，完整含义尚未确认。';
+      if(conflicts.length)missing=`核对 ${quote(conflicts[0].claim)}：${conflicts[0].issues?.join('；') || '当前表述与目标含义尚不一致'}。`;
+      else if(rest.length)missing=`还需核实：${rest.slice(0,2).map(f=>quote(f.claim)).join('、')}${rest.length>2?`，另有 ${rest.length-2} 条见依据`:''}。`;
+      else missing='这一重点的必要含义已有支持，可以继续推进。';
+      if(focus.manual && !complete(focus))missing='你已标记仍需补讲。'+missing;
+    } else {
+      const supported=focus.claims.filter(c=>c.matched),rest=focus.claims.filter(c=>!c.matched);
+      alignment=supported.length?`文字已对应 ${supported.length}/${focus.claims.length} 项：${supported.slice(0,1).map(c=>quote(c.text)).join('、')}；含义仍可在依据中复核。`:`最近原话与${quote(goal)}部分相关，尚不能确认完整。`;
+      missing=rest.length?`还需核实：${quote(rest[0].text)}${rest[0].guard?`（${rest[0].guard}）`:''}。`:'预设文字已有对应，继续展开下一点。';
+      if(focus.manual && !complete(focus))missing='你已标记仍需补讲。'+missing;
+    }
+    const done=beats.filter(complete).length,partial=beats.filter(b=>b.status==='partial').length,conflicts=beats.filter(b=>b.status==='conflict').length;
+    let overall=beats.length?`${done}/${beats.length} 个重点已完整对齐或确认${partial?`，${partial} 个部分对齐`:''}${conflicts?`，${conflicts} 个表述待核对`:''}。`:'尚未设置本场重点。';
+    const delivery=slow.overall?.delivery || [];
+    if(delivery.length)overall+=delivery[0];
+    else if(finite(slow.overall?.pace) && slow.overall?.speechSeconds>=30)overall+=`已观测语音均速 ${Math.round(slow.overall.pace)} 字/分，处于本场参考范围。`;
+    else overall+='语音样本仍少，暂不评价整场声音表现。';
+    let outlookKind='room',outlook=`还剩 ${clock(slow.remaining)}；按设定，待核实项补讲约需 ${Math.ceil(slow.allCost)} 秒，已另留 ${Math.round(slow.reserve)} 秒收尾。`;
+    if(!beats.length){outlookKind='waiting';outlook='设置重点和时限后，再估计补讲是否来得及。';}
+    else if(slow.remaining<=0){outlookKind='ended';outlook=`时间已到，${slow.queue.length?`${slow.queue.length} 项留到复盘核对`:'本场重点已有支持或确认'}。`;}
+    else if(!slow.queue.length){outlookKind='complete';outlook=`重点已覆盖，余 ${clock(slow.remaining)}，可用一句话回扣主题。`;}
+    else if(!slow.queue.some(b=>b.allocatedSeconds>0)){outlookKind='closing';outlook=`余 ${clock(slow.remaining)}，补讲预算不足，先收尾；未确认项留到复盘。`;}
+    else if(slow.budget<slow.allCost){outlookKind='tight';outlook=`补讲预算 ${slow.budget} 秒，按设定需 ${Math.ceil(slow.allCost)} 秒；先保留「${label(slow.queue.find(b=>b.allocatedSeconds>0))}」的结论，压缩其他展开。`;}
+    const next=slow.queue.find(b=>b.allocatedSeconds>0);
+    const nextStep=next && slow.remaining>slow.reserve?`优先核对：${label(next)}${next.deadline<t?'（已过计划截止点）':next.deadline-t<=30?`（距计划截止 ${Math.ceil(next.deadline-t)} 秒）`:''}`:'';
+    return {...raw,title:target?`${focus?'当前重点':'下一重点'}：${headline}`:allCovered?'预设重点已覆盖，准备收束':'先设置本场重点',status:allCovered&&!focus?'准备收束':labels[raw.kind] || '待核对',goal:shortMeaning(goal,100),current:excerpt?`“${shortMeaning(excerpt,96)}”`:'尚无这段已结束的可靠语句。',alignment,missing,overall,outlook,outlookKind,statuses,targetId:target?.id || null,targetSource:focus?'observed':allCovered?'complete':'planned',nextStep,
+      summary:`${alignment} ${missing}`,gaps:`${overall} ${outlook}${nextStep?' '+nextStep:''}`};
+  }
+  function contentReviewEvidence(beats,units,t,slow) {
     const recent=units.filter(u=>u.time_span[1]<=t && u.time_span[1]>Math.max(0,t-30) && Number(u.reliability?.text || 0)>=.6);
     const last=recent.at(-1),observedAt=last?.time_span[1] ?? null;
     const usable=last && t-observedAt<=12 && clean(recent.map(u=>u.text).join(" ")).length>=8;
@@ -355,11 +470,11 @@
     if(whole.seconds>=30 && Math.round(whole.pace)>paceRules.high) delivery.push("本场整体语速偏快，补讲时减少展开，留出句间停顿。");
     if(whole.seconds>=30 && whole.pace!==null && Math.round(whole.pace)<paceRules.low) delivery.push("本场整体语速偏慢，若非刻意强调，可适当提速，把下一句连贯说完。");
     if(whole.seconds>=30 && whole.pitch!==null && whole.pitch<2) delivery.push("已观测语音的音高起伏较小，讲关键结论时可增加轻重变化。");
-    slow.overall={pending:beats.filter(b=>!complete(b)).length,partial:beats.filter(b=>b.status==="partial").length,pace:whole.pace,pitch:whole.pitch,delivery};
+    slow.overall={pending:beats.filter(b=>!complete(b)).length,partial:beats.filter(b=>b.status==="partial").length,pace:whole.pace,pitch:whole.pitch,speechSeconds:whole.seconds,delivery};
     slow.review=contentReview(beats,units,t,slow);
-    const fastMetrics=recentMetrics(units,t);
+    const fastMetrics=recentMetrics(units,t),content=contentCue(beats,units,t,slow);
     return {t,units,beats,metrics:m,fastMetrics,paceState:paceState(fastMetrics,t,fastProfile),history,coverage,visual:visuals.at(-1) || null,visualState:visualState(data,t),visualCoach:visualCoach(data,t,units,limit),
-      fast:fastCue(fastMetrics,history,units,t,limit-t,beats,slow.reserve,limit,fastProfile),slow};
+      fast:combineFastCue(fastCue(fastMetrics,history,units,t,limit-t,beats,slow.reserve,limit,fastProfile),content),slow};
   }
   class FastCueGate {
     constructor(holdSeconds=8) {this.holdSeconds=holdSeconds;this.events=[];this.reset();}
@@ -367,8 +482,8 @@
     show(cue,t,visibleClock) {
       if((this.lastT!==null && t<this.lastT) || (this.lastClock!==null && visibleClock<this.lastClock))this.reset();
       this.lastT=t;this.lastClock=visibleClock;
-      const key=c=>`${c.code}:${c.beatId || ""}`;
-      const accept=()=>{this.current=cue.severity>0?{...cue}:null;this.since=visibleClock;this.calmSince=null;if(this.current){this.events.push({at:t,visibleAt:visibleClock,title:cue.title,code:cue.code,reason:cue.reason,observedAt:cue.observedAt,...(cue.reference?{reference:cue.reference,evidence:cue.evidence,kind:cue.kind}:{})});this.events=this.events.slice(-100);}return {...cue,phase:"current",holdRemaining:this.current?this.holdSeconds:0};};
+      const key=c=>c.actionKey || `${c.code}:${c.beatId || ""}`;
+      const accept=()=>{this.current=cue.severity>0 || cue.sticky?{...cue}:null;this.since=visibleClock;this.calmSince=null;if(this.current){this.events.push({at:t,visibleAt:visibleClock,title:cue.title,code:cue.code,reason:cue.reason,observedAt:cue.observedAt,...(cue.reference?{reference:cue.reference,evidence:cue.evidence,kind:cue.kind}:{})});this.events=this.events.slice(-100);}return {...cue,phase:"current",holdRemaining:this.current?this.holdSeconds:0};};
       if(!this.current)return accept();
       // An opposite measured pace needs the opposite action immediately.
       if(["pace","slow"].includes(cue.code) && ["pace","slow"].includes(this.current.code) && cue.code!==this.current.code)return accept();

@@ -1,4 +1,4 @@
-﻿/* F8 integration: received evidence only. Existing case review and capture stay independent. */
+﻿/* F10 integration: received evidence only. Existing case review and capture stay independent. */
 (() => {
   'use strict';
   const E=window.StageEngine, $=s=>document.querySelector(s);
@@ -8,9 +8,19 @@
   const read=()=>{try {const x=JSON.parse(localStorage.getItem(MEMORY)||'[]');return Array.isArray(x)?x.filter(r=>r && r.version===E.VERSION && Array.isArray(r.snapshots) && Array.isArray(r.beats)):[];}catch{return [];}};
   const prefs=()=>{try {const p=JSON.parse(localStorage.getItem('talkeval_stage_cues_v1')||'{}');return {profile:['active','standard'].includes(p.profile)?p.profile:'active',holdSeconds:[6,8,12].includes(p.holdSeconds)?p.holdSeconds:8};}catch{return {profile:'active',holdSeconds:8};}};
   function download(name,value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  function outline(data,limit,visual={}) {return E.defaultPlan(data,limit).map(b=>({...b,title:visual.beats?.find(n=>n.beat_id===b.id)?.note_title || b.title}));}
-  function body(id) {return `<section class="lm-fast" aria-label="快通道"><div class="lm-label"><span><i></i>快通道 · 当下提醒</span><small data-out="clock">等待输入</small></div><h2 data-out="fast" aria-live="polite">准备投放</h2><p data-out="reason">载入录像后，按播放进度观察最近一小段的表现。</p><div class="lm-pace"><b data-out="pace">等待语速</b><span data-out="range">参考 160–320 字/分</span></div><small class="lm-hold" data-out="hold">观察近 8 秒 · 提醒至少保留 8 秒</small><details class="lm-options"><summary>提醒设置与最近记录</summary><div><label>提醒强度<select data-control="profile"><option value="active">积极提醒</option><option value="standard">常规提醒</option></select></label><label>至少保留<select data-control="hold"><option value="6">6 秒</option><option value="8">8 秒</option><option value="12">12 秒</option></select></label></div><p data-out="recent">暂无提醒</p></details></section>
-    <section class="lm-slow" aria-labelledby="${id}-slow-label"><div class="lm-label"><span id="${id}-slow-label">慢通道 · 当前表达与整体</span><small>近 30 秒</small></div><h2 data-out="slow" aria-live="polite">先听一小段，再评价</h2><p data-out="summary">对照本场想表达的重点，看看目前说得怎么样。</p><div class="lm-gaps"><b>整体还需留意</b><p data-out="gaps">随后提醒大方面还需确认什么。</p></div><small data-out="semantic">正在准备内容判断…</small><button class="lm-text" data-control="detail" aria-expanded="false" aria-controls="${id}-details">展开计划与依据 ↓</button></section>
+  function outline(data,limit,visual={}) {return E.defaultPlan(data,limit).map(b=>{const note=visual.beats?.find(n=>n.beat_id===b.id);return {...b,title:note?.note_title || b.title,brief:note?.note_summary || b.title};});}
+  function restoreSettings(monitor,saved){
+    if(!saved)return;
+    monitor.plan=monitor.plan.map(b=>{const prior=saved.plan?.find(p=>p.id===b.id);if(!prior)return b;return {...b,priority:[1,2,3].includes(prior.priority)?prior.priority:b.priority,deadline:E.finite(prior.deadline)?E.clamp(prior.deadline,1,monitor.limit):b.deadline,estimate:E.finite(prior.estimate)?E.clamp(prior.estimate,3,120):b.estimate};});
+    const p=saved.preferences;
+    if(p && ['active','standard'].includes(p.profile) && [6,8,12].includes(p.holdSeconds)){
+      monitor.preferences={profile:p.profile,holdSeconds:p.holdSeconds};monitor.gate=new E.FastCueGate(p.holdSeconds);monitor.visualGate=new E.FastCueGate(p.holdSeconds);
+      monitor.host.querySelector('[data-control="profile"]').value=p.profile;monitor.host.querySelector('[data-control="hold"]').value=String(p.holdSeconds);
+    }
+    monitor.renderPlan();
+  }
+  function body(id) {return `<section class="lm-fast" aria-label="快通道"><div class="lm-label"><span><i></i>快通道 · 内容与节奏</span><small data-out="clock">等待输入</small></div><h2 data-out="fast" aria-live="polite">准备投放</h2><p data-out="reason">载入录像后，按播放进度观察最近一小段的表现。</p><div class="lm-fast-state"><div class="lm-content"><b data-out="content">内容：先听完整一句</b><span data-out="content-basis">近 30 秒</span></div><div class="lm-pace"><b data-out="pace">等待语速</b><span data-out="range">参考 160–320 字/分</span></div></div><small class="lm-hold" data-out="hold">观察近 8 秒 · 提醒至少保留 8 秒</small><details class="lm-options"><summary>提醒设置与最近记录</summary><div><label>提醒强度<select data-control="profile"><option value="active">积极提醒</option><option value="standard">常规提醒</option></select></label><label>至少保留<select data-control="hold"><option value="6">6 秒</option><option value="8">8 秒</option><option value="12">12 秒</option></select></label></div><p data-out="recent">暂无提醒</p></details></section>
+    <section class="lm-slow" aria-labelledby="${id}-slow-label"><div class="lm-label"><span id="${id}-slow-label">慢通道 · 当前表达与整体</span><small>近 30 秒</small></div><h2 data-out="slow" aria-live="polite">先明确本场重点</h2><span class="lm-alignment-state" data-out="alignment-state">等待本段表达</span><dl class="lm-compare"><div><dt>刚才说了</dt><dd data-out="current">尚无已结束的可靠语句。</dd></div><div><dt>要讲清楚</dt><dd data-out="goal">载入本场重点后显示具体目标。</dd></div></dl><div class="lm-alignment"><p data-out="summary">随后对照原话与目标。</p><p data-out="missing"></p></div><div class="lm-gaps"><div class="lm-goal-statuses" data-out="goal-statuses" aria-label="全场各重点对齐情况"></div><p data-out="gaps">等待本场进度。</p><p class="lm-outlook" data-out="outlook"></p><p class="lm-next" data-out="next"></p></div><small data-out="semantic">正在准备内容判断…</small><button class="lm-text" data-control="detail" aria-expanded="false" aria-controls="${id}-details">展开计划与依据 ↓</button></section>
     <section class="lm-action"><div class="lm-label"><span>动作教练 · 训练参考</span><small data-out="visual-time">等待画面</small></div><h3 data-out="action">先观察一小段</h3><p data-out="action-copy">动作服务于内容，自然地与听众交流。</p><details><summary>观察和参考依据</summary><p data-out="action-evidence"></p><p data-out="action-reference"></p><p>参考 <a href="https://www.toastmasters.org/resources/public-speaking-tips/gestures-and-body-language" target="_blank" rel="noopener noreferrer">Toastmasters 演讲训练原则 ↗</a>。目前未建立大师样本评分标准；看不清时不作动作评价。</p></details></section>`;}
   class Monitor {
     constructor(host,id,data,limit,visual={}) {
@@ -45,9 +55,15 @@
       this.set('fast',cue.title);this.set('reason',cue.reason);this.set('clock',`${playing?'同步观察':'已暂停'} · ${E.clock(t)}`);
       this.set('pace',p.pace===null?'当前语速：等待可靠语音':`${p.pace} 字/分 · ${p.kind==='fast'?'偏快':p.kind==='slow'?'偏慢':'适中'}`);
       this.set('range',`参考 ${range.low}–${range.high} 字/分`);
-      this.set('hold',!playing?'已暂停，提醒保留时间冻结':cue.phase==='current'?`观察近 8 秒 · 提醒至少保留 ${this.preferences.holdSeconds} 秒`:`保留刚才的提醒 · ${p.kind==='steady'?'当前已回到参考范围，观察恢复':'继续观察恢复'}`);
+      this.set('content',`当前内容：${r.fast.content.status}`);this.set('content-basis',r.fast.content.basis || '近 30 秒');
+      this.set('hold',!playing?'已暂停，提醒保留时间冻结':cue.phase==='current'?`声音近 8 秒 / 内容近 30 秒 · 提醒至少保留 ${this.preferences.holdSeconds} 秒`:`保留 ${E.clock(cue.observedAt)} 的提醒 · 当前建议：${r.fast.title}`);
       this.set('recent',this.gate.events.slice(-3).reverse().map(e=>`${E.clock(e.at)} ${e.title}`).join(' · ') || '暂无已触发提醒');
-      this.set('slow',r.slow.review.title);this.set('summary',r.slow.review.summary);this.set('gaps',r.slow.review.gaps);
+      const review=r.slow.review;
+      this.set('slow',review.title);this.set('alignment-state',review.status);this.set('current',review.current);this.set('goal',review.goal || '尚未设置');this.set('summary',review.alignment);this.set('missing',review.missing);this.set('gaps',review.overall);this.set('outlook',review.outlook);this.set('next',review.nextStep);
+      this.host.querySelector('.lm-slow').dataset.state=review.kind;
+      this.host.querySelector('[data-out="outlook"]').dataset.state=review.outlookKind;
+      const statusMarkup=review.statuses.map((b,i)=>`<span class="lm-goal-status" data-state="${esc(b.state)}" title="${esc(b.title)}：${esc(b.status)}">${i+1} ${esc(b.title)} <b>${esc(b.status)}</b></span>`).join('');
+      if(statusMarkup!==this.statusMarkup){this.statusMarkup=statusMarkup;this.host.querySelector('[data-out="goal-statuses"]').innerHTML=statusMarkup;}
       this.set('semantic',semantic?`语义核对至 ${E.clock(semantic.as_of)} · 按播放进度释放`:(this.cacheError || '文字匹配参考 · 完整含义仍需复核'));
       this.set('action',action.title);this.set('action-copy',action.action || action.reason);this.set('action-evidence',action.evidence || '暂时没有足够的连续画面证据。');this.set('action-reference',action.reference || '动作帮助说明内容，自然放松，与听众交流。');this.set('visual-time',`画面 ${E.clock(t)}`);
       const signature=JSON.stringify([r.beats.map(b=>[b.status,b.matched]),r.slow.queue.map(b=>[b.id,b.action]),Math.floor(t/5)]);
@@ -71,7 +87,9 @@
     const frame=document.createElement('section');frame.className='lm-frame lm-replay-frame';frame.id='launch-stage';frame.setAttribute('aria-label','案例投放与现场同步监测');
     frame.innerHTML='<header class="lm-frame-head"><div><small>FROM LIBRARY TO STAGE</small><h2>现场监测</h2></div><div class="lm-source"><b>录像模拟</b><button type="button" data-launch-camera>切换实时摄像头 ↗</button></div><span class="lm-sync"><i></i>画面与双通道同步</span></header><p class="lm-source-note">录像替代现场输入，只分析已经播放到的片段。下方保留整场图解与复盘证据。</p><div class="lm-stage-grid"><div class="lm-screen"></div><aside class="lm-monitor"></aside></div>';
     grid.before(frame);frame.querySelector('.lm-screen').append(panel);
-    const monitor=new Monitor(frame.querySelector('.lm-monitor'),'replay-monitor',withRefinedVisuals(data),Math.ceil(E.duration(data)),visual);replay=monitor;monitor.video=video;monitor.originalData=data;
+    const savedLimit=data.saved_monitor?.limit;
+    const limit=E.finite(savedLimit)&&savedLimit>=30&&savedLimit<=14400?savedLimit:Math.ceil(E.duration(data));
+    const monitor=new Monitor(frame.querySelector('.lm-monitor'),'replay-monitor',withRefinedVisuals(data),limit,visual);replay=monitor;monitor.video=video;monitor.originalData=data;restoreSettings(monitor,data.saved_monitor);
     monitor.speaker=data.metadata?.speaker_id || data.intent_map?.speaker_id || '我的练习';
     const settings=document.createElement('div');settings.className='lm-session-controls';settings.innerHTML=`<div class="lm-run"><button data-run="launch" class="lm-primary">投放到现场 ↗</button><button data-run="pause" disabled>暂停</button><button data-run="finish" disabled>结束并记忆</button><label>速度<select data-run="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></label></div><div class="lm-setup"><label>个人记忆 ID<input data-run="speaker" maxlength="48" value="${esc(monitor.speaker)}"></label><label>本场限时（分钟）<input data-run="limit" type="number" min=".5" max="240" step=".1" value="${Math.ceil(monitor.limit/6)/10}"></label><b data-run="remaining">剩余 ${E.clock(monitor.limit)}</b></div><p data-run="status" role="status">案例已装载，点击投放从开头开始。也可直接播放回看。</p>`;panel.querySelector('.player-stage').after(settings);
     const insight=root.querySelector('.insight-panel');frame.after(insight);
@@ -97,10 +115,13 @@
     video.addEventListener('seeking',()=>{monitor.gate.reset();monitor.visualGate.reset();if(monitor.expectedReset && video.currentTime<.5){monitor.expectedReset=false;return;}if(monitor.active){monitor.jumped=true;status('已跳转 · 按当前位置重算；本场仅供复盘。');}monitor.manual=monitor.manual.filter(e=>e.at<=video.currentTime);monitor.snapshots=monitor.snapshots.filter(s=>s.at<=video.currentTime);monitor.lastVideo=video.currentTime;},{signal:signal.signal});
     video.addEventListener('seeked',()=>{monitor.render(video.currentTime,false);},{signal:signal.signal});
     video.addEventListener('ended',monitor.finish,{signal:signal.signal});
-    frame.querySelector('[data-launch-camera]').addEventListener('click',()=>{video.pause();$('#live-tab').click();$('#live-view').scrollIntoView({block:'start'});});
+    const cameraButton=frame.querySelector('[data-launch-camera]');
+    if(data.saved_session)cameraButton.textContent='用本场提纲实时再练 ↗';
+    cameraButton.addEventListener('click',()=>{video.pause();if(data.saved_session){try{TalkEvalShared.rehearse(data.saved_session.id);}catch(error){status(error.message);}return;}$('#live-tab').click();$('#live-view').scrollIntoView({block:'start'});});
     $('#library-launch').disabled=false;$('#library-launch').onclick=()=>{if(monitor.active){frame.scrollIntoView({block:'start'});video.play().catch(()=>{});}else monitor.start();};$('#launch-library-state').textContent='已装载 · '+(data.intent_map?.title||data.case_id);
     monitor.timer=setInterval(()=>{if(replay!==monitor || $('#review-view').hidden)return;const dt=video.currentTime-(monitor.lastVideo||0);if(monitor.active && !video.paused && !document.hidden && dt>0 && dt<=Math.max(4,video.playbackRate*1.5))monitor.coveredWall+=dt;monitor.lastVideo=video.currentTime;monitor.render(video.currentTime,monitor.active&&!video.paused);settings.querySelector('[data-run="remaining"]').textContent='剩余 '+E.clock(monitor.limit-video.currentTime);},500);
     monitor.render(0,false);
+    if(data.metadata?.script_source==='saved_live_session'){monitor.cacheError='现场保存的转写 · 按录像时间逐句核对';monitor.render(video.currentTime,false);return;}
     Promise.all([fetch(`./stage-semantic/${encodeURIComponent(data.case_id)}.json`).then(r=>{if(!r.ok)throw Error('missing');return r.json();}),signature(data)]).then(([cache,key])=>{if(replay!==monitor)return;if(cache.source_signature!==key)throw Error('changed');monitor.cache=cache;monitor.render(video.currentTime,false);}).catch(()=>{if(replay===monitor){monitor.cacheError='本案例语义缓存不可用 · 继续文字匹配参考';monitor.render(video.currentTime,false);}});
   }
   function disposeReplay(){if(replay){clearInterval(replay.timer);replay.abort?.abort();replay.video?.pause();replay=null;}const b=$('#library-launch');if(b){b.disabled=true;b.onclick=null;}}
@@ -122,12 +143,13 @@
     setInterval(()=>{
       const state=bridge.getState(),session=state.session,points=JSON.stringify(state.points.map(p=>[p.id,p.text]));
       if(session?.id!==sessionId || (!session && points!==priorPoints)){
+        const preserved=session && !priorSession && priorPoints===points ? {plan:camera.plan,preferences:camera.preferences} : state.practiceMonitor;
         if(priorSession?.monitorF8){const box=cameraMemory.querySelector('[data-live-comparison]'),now=priorSession.monitorF8.snapshots.at(-1),history=bridge.getRecords().filter(s=>s.id!==priorSession.id && s.speakerId===priorSession.speakerId && s.monitorF8?.eligible && s.monitorF8.language===priorSession.monitorF8.language),samples=history.map(s=>s.monitorF8.snapshots.filter(x=>Math.abs(x.progress-(now?.progress||0))<=.075).sort((a,b)=>Math.abs(a.progress-now.progress)-Math.abs(b.progress-now.progress))[0]?.pace).filter(E.finite),avg=E.mean(samples);box.textContent=`本场近 30 秒 ${E.finite(now?.pace)?Math.round(now.pace)+' 字/分':'暂无可靠语速'}；个人历史平均 ${E.finite(avg)?Math.round(avg)+' 字/分':'暂无可比场次'}（${samples.length} 场）。`;}
-        camera.reset();sessionId=session?.id;priorPoints=points;camera.limit=Number($('#camera-time-limit').value)*60;camera.data=liveData(state,bridge.elapsed());camera.plan=outline(camera.data,camera.limit);camera.active=!!session;camera.renderPlan();$('#camera-time-limit').disabled=!!session;
+        camera.reset();sessionId=session?.id;priorPoints=points;camera.limit=Number($('#camera-time-limit').value)*60;camera.data=liveData(state,bridge.elapsed());camera.plan=outline(camera.data,camera.limit);camera.active=!!session;restoreSettings(camera,preserved);camera.renderPlan();$('#camera-time-limit').disabled=!!session;
       }
       if(!session){camera.set('fast','等待开始');camera.set('reason','摄像头采集与语音转写就绪后，显示当前最需要的一条提醒。');return;}
       priorSession=session;camera.data=liveData(state,bridge.elapsed());camera.speaker=session.speakerId;camera.active=true;const r=camera.render(bridge.elapsed(),true);camera.set('semantic','实时转写的文字匹配参考 · 同义语义模型待接入');
-      session.monitorF8={version:E.VERSION,language:camera.data.intent_map.language,limit:camera.limit,eligible:bridge.elapsed()>=camera.limit*.9&&r.units.filter(u=>u.reliability.audio>=.6).length>=2,snapshots:camera.snapshots,preferences:camera.preferences,fastReminders:camera.gate.events,assessmentMethod:'lexical-1.0'};
+      session.monitorF8={version:E.VERSION,language:camera.data.intent_map.language,limit:camera.limit,plan:camera.plan.map(b=>({...b})),manualConfirmations:camera.manual.map(item=>({...item})),eligible:bridge.elapsed()>=camera.limit*.9&&r.units.filter(u=>u.reliability.audio>=.6).length>=2,snapshots:camera.snapshots,preferences:camera.preferences,fastReminders:camera.gate.events,assessmentMethod:'lexical-1.0'};
     },500);
   }
   window.TalkEvalLaunch={mountReplay,disposeReplay,mountCamera,signature,liveData,getReplayResult:()=>replay?.result};
