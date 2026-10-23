@@ -65,6 +65,12 @@
       const statusMarkup=review.statuses.map((b,i)=>`<span class="lm-goal-status" data-state="${esc(b.state)}" title="${esc(b.title)}：${esc(b.status)}">${i+1} ${esc(b.title)} <b>${esc(b.status)}</b></span>`).join('');
       if(statusMarkup!==this.statusMarkup){this.statusMarkup=statusMarkup;this.host.querySelector('[data-out="goal-statuses"]').innerHTML=statusMarkup;}
       this.set('semantic',semantic?`语义核对至 ${E.clock(semantic.as_of)} · 按播放进度释放`:(this.cacheError || '文字匹配参考 · 完整含义仍需复核'));
+      if(this.data.saved_session && !r.units.some(u=>u.time_span[1]>Math.max(0,t-30) && u.reliability.text>=.6)){
+        const saved=this.data.saved_session,processing=['queued','running'].includes(saved.analysis?.status);
+        if(!r.units.length){this.set('fast',processing?'正在补做转写':'等待本段语音');this.set('reason',processing?'录像已保存，正在识别音轨；完成后可按播放时间分析。':saved.derived?'从录像音轨逐段读取，首个可靠片段结束后开始核对内容。':'已带入提纲，但当前播放位置还没有可靠转写；提纲不能代替实际说过的话。');}
+        this.set('current','最近 30 秒暂无可用于对照的可靠转写。');
+        this.set('summary','先检查上方转写状态；已有提纲仍保留，缺少原话时暂不判断是否偏题。');
+      }
       this.set('action',action.title);this.set('action-copy',action.action || action.reason);this.set('action-evidence',action.evidence || '暂时没有足够的连续画面证据。');this.set('action-reference',action.reference || '动作帮助说明内容，自然放松，与听众交流。');this.set('visual-time',`画面 ${E.clock(t)}`);
       const signature=JSON.stringify([r.beats.map(b=>[b.status,b.matched]),r.slow.queue.map(b=>[b.id,b.action]),Math.floor(t/5)]);
       if(signature!==this.evidenceSignature){this.evidenceSignature=signature;this.details.querySelector('.lm-evidence').innerHTML=`<p><b>${esc(r.slow.title)}</b> ${esc(r.slow.reason)}</p>`+r.beats.map(b=>`<article><strong>${esc(b.title)}</strong><span>${b.status==='confirmed'?'人工已确认':E.complete(b)?'已有支持':b.status==='conflict'?'表述待核对':b.status==='partial'?'部分相关':'待确认'}</span><p>${esc(b.claims.map(c=>c.evidence || c.text).filter(Boolean).join(' / ').slice(0,240))}</p><button data-confirm="${esc(b.id)}" data-value="true">已讲清，确认</button><button data-confirm="${esc(b.id)}" data-value="false">仍需补讲</button></article>`).join('');
@@ -121,13 +127,55 @@
     $('#library-launch').disabled=false;$('#library-launch').onclick=()=>{if(monitor.active){frame.scrollIntoView({block:'start'});video.play().catch(()=>{});}else monitor.start();};$('#launch-library-state').textContent='已装载 · '+(data.intent_map?.title||data.case_id);
     monitor.timer=setInterval(()=>{if(replay!==monitor || $('#review-view').hidden)return;const dt=video.currentTime-(monitor.lastVideo||0);if(monitor.active && !video.paused && !document.hidden && dt>0 && dt<=Math.max(4,video.playbackRate*1.5))monitor.coveredWall+=dt;monitor.lastVideo=video.currentTime;monitor.render(video.currentTime,monitor.active&&!video.paused);settings.querySelector('[data-run="remaining"]').textContent='剩余 '+E.clock(monitor.limit-video.currentTime);},500);
     monitor.render(0,false);
-    if(data.metadata?.script_source==='saved_live_session'){monitor.cacheError='现场保存的转写 · 按录像时间逐句核对';monitor.render(video.currentTime,false);return;}
+    if(data.metadata?.script_source==='saved_live_session'){monitor.cacheError=data.saved_session?.derived?'录像音轨补转写 · 按播放时间核对 · 文字匹配参考':'现场保存的转写 · 按录像时间逐句核对';mountRecordingEvidence(monitor,frame,data);monitor.render(video.currentTime,false);return;}
     Promise.all([fetch(`./stage-semantic/${encodeURIComponent(data.case_id)}.json`).then(r=>{if(!r.ok)throw Error('missing');return r.json();}),signature(data)]).then(([cache,key])=>{if(replay!==monitor)return;if(cache.source_signature!==key)throw Error('changed');monitor.cache=cache;monitor.render(video.currentTime,false);}).catch(()=>{if(replay===monitor){monitor.cacheError='本案例语义缓存不可用 · 继续文字匹配参考';monitor.render(video.currentTime,false);}});
   }
-  function disposeReplay(){if(replay){clearInterval(replay.timer);replay.abort?.abort();replay.video?.pause();replay=null;}const b=$('#library-launch');if(b){b.disabled=true;b.onclick=null;}}
+  function mountRecordingEvidence(monitor,frame,data){
+    const saved=data.saved_session;if(!saved)return;
+    let analysis=saved.analysis || {status:'not_started'},polling=false;
+    const box=document.createElement('section');box.className='lm-recording-evidence';box.setAttribute('aria-label','录像分析来源');
+    box.innerHTML='<div><b data-recording-title></b><p data-recording-copy></p><small data-recording-detail></small></div><button type="button" data-recording-action></button>';
+    frame.querySelector('.lm-source-note').after(box);
+    const button=box.querySelector('button'),path=`/api/sessions/${encodeURIComponent(saved.id)}/analysis`;
+    const draw=()=>{
+      const derived=saved.derived,ready=analysis.status==='ready',busy=['queued','running'].includes(analysis.status);
+      box.querySelector('[data-recording-title]').textContent=derived?'正在使用录像音轨分析':ready?'音轨补转写已完成':busy?'正在补全录像分析':'检查本场转写数据';
+      const n=(analysis.segments || []).length;
+      box.querySelector('[data-recording-copy]').textContent=derived?`原场保存 ${saved.assets.transcript} 句；从录像声音补得 ${n} 段，随播放进度进入快慢通道。`:analysis.message || `原场只有 ${saved.assets.transcript} 句转写，可能无法连续分析。`;
+      box.querySelector('[data-recording-detail]').textContent=`已带入 ${saved.assets.points} 个目标重点。`+(busy?` ${Number(analysis.processedSeconds || 0).toFixed(0)} 秒音轨已处理。`:' 目标提纲用于对照，实际内容来自声音；自动转写中的数字、专名请回看核对。');
+      button.hidden=derived || analysis.status==='empty' || (busy) || (!ready && !TalkEvalShared.canManage(saved.id)) || ['unavailable','local_only'].includes(analysis.status);
+      button.textContent=ready?'载入分析并继续回放 ↗':'补做录像音轨转写';
+      box.dataset.status=derived?'ready':analysis.status;
+    };
+    button.addEventListener('click',async()=>{
+      if(analysis.status==='ready'){
+        const at=monitor.video.currentTime,playing=!monitor.video.paused;
+        await TalkEvalReplay.selectCase(data.case_id,{at,playing});return;
+      }
+      button.disabled=true;
+      try{analysis=await (await TalkEvalShared.request(path,{method:'POST'})).json();saved.analysis=analysis;draw();}
+      catch(error){box.querySelector('[data-recording-copy]').textContent=error.message;}
+      finally{button.disabled=false;}
+    });
+    monitor.analysisTimer=setInterval(async()=>{
+      if(replay!==monitor || polling || !['queued','running'].includes(analysis.status))return;
+      polling=true;
+      try{const next=await (await TalkEvalShared.request(path,{timeoutMs:8000})).json();if(replay===monitor){analysis=next;saved.analysis=analysis;draw();}}
+      catch{if(replay===monitor)box.querySelector('[data-recording-copy]').textContent='暂时未连接到转写服务，正在重试；已有录像和资料仍可回看。';}
+      finally{polling=false;}
+    },3000);draw();
+  }
+  function disposeReplay(){if(replay){clearInterval(replay.timer);clearInterval(replay.analysisTimer);replay.abort?.abort();replay.video?.pause();replay=null;}const b=$('#library-launch');if(b){b.disabled=true;b.onclick=null;}}
+  function validSpeechTiming(s){
+    const span=s.time_span,source=s.source==='recording-asr' && s.timingQuality==='word-aligned' || s.source==='browser-asr' && s.timingQuality==='browser-estimate';
+    if(!source || !Array.isArray(span) || !span.every(E.finite) || span[0]<0 || span[1]<=span[0])return false;
+    const duration=span[1]-span[0],count=(String(s.text).match(/[\u3400-\u9fff]|[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/gu)||[]).length;
+    // Long browser windows can contain silence or missed recognition; keep text but exclude pace.
+    return duration>=.25 && duration<=20 && count>0 && count*60/duration<=1200;
+  }
   function liveData(state,seconds){
     const session=state.session,beats=state.points.map((p,i)=>({beat_id:p.id||'live-'+i,target_meaning:p.text,required_claims:p.claims?.length?p.claims:[p.text],importance:1}));
-    const units=(session?.segments||[]).map((s,i)=>{const timed=s.source==='browser-asr' && s.timingQuality==='browser-estimate' && Array.isArray(s.time_span) && s.time_span[1]>s.time_span[0],span=timed?s.time_span:[Math.max(0,s.at-.001),Math.max(.001,s.at)],audio=(state.analysisAudio||[]).filter(a=>a.at>=span[0]&&a.at<=span[1]),rms=E.mean(audio.map(a=>a.rms));return {observed_id:'live-'+i,text:s.text,time_span:span,reliability:{text:s.source==='manual'?1:s.asrConfidence??.8,audio:timed&&(s.asrConfidence??.8)>=.6?1:0},speech:{pace_per_minute:timed?((s.text.match(/[\u3400-\u9fff]|[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/gu)||[]).length*60/(span[1]-span[0])):null,rms_energy:rms,pitch_range_semitones:null,pause_before:i&&timed&&session.segments[i-1].time_span?Math.max(0,span[0]-session.segments[i-1].time_span[1]):null}};});
+    const units=(session?.segments||[]).map((s,i)=>{const timed=validSpeechTiming(s),span=timed?s.time_span:[Math.max(0,s.at-.001),Math.max(.001,s.at)],audio=(state.analysisAudio||[]).filter(a=>a.at>=span[0]&&a.at<=span[1]),rms=E.mean(audio.map(a=>a.rms));return {observed_id:'live-'+i,text:s.text,time_span:span,reliability:{text:s.source==='manual'?1:s.asrConfidence??.8,audio:timed&&(s.asrConfidence??.8)>=.6?1:0},speech:{pace_per_minute:timed?((s.text.match(/[\u3400-\u9fff]|[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/gu)||[]).length*60/(span[1]-span[0])):null,rms_energy:rms,pitch_range_semitones:null,pause_before:i&&timed&&validSpeechTiming(session.segments[i-1])?Math.max(0,span[0]-session.segments[i-1].time_span[1]):null}};});
     return {case_id:session?.id||'live',intent_map:{language:($('#coach-language')?.value||'zh').slice(0,2),beats},expression_map:{duration:Math.max(1,seconds),units},visual_observations:{observations:state.visualWindow||[]}};
   }
   function mountCamera(bridge){
@@ -152,6 +200,6 @@
       session.monitorF8={version:E.VERSION,language:camera.data.intent_map.language,limit:camera.limit,plan:camera.plan.map(b=>({...b})),manualConfirmations:camera.manual.map(item=>({...item})),eligible:bridge.elapsed()>=camera.limit*.9&&r.units.filter(u=>u.reliability.audio>=.6).length>=2,snapshots:camera.snapshots,preferences:camera.preferences,fastReminders:camera.gate.events,assessmentMethod:'lexical-1.0'};
     },500);
   }
-  window.TalkEvalLaunch={mountReplay,disposeReplay,mountCamera,signature,liveData,getReplayResult:()=>replay?.result};
+  window.TalkEvalLaunch={mountReplay,disposeReplay,mountCamera,signature,liveData,validSpeechTiming,getReplayResult:()=>replay?.result};
 })();
 

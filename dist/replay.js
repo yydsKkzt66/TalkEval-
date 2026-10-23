@@ -782,7 +782,7 @@ function updateCasePlayback(data, seconds) {
   document.querySelectorAll(".timeline-unit").forEach((unit) => unit.classList.toggle("selected", activeIds.has(unit.dataset.observedId)));
 }
 
-async function selectCase(caseId) {
+async function selectCase(caseId,resume=null) {
   window.TalkEvalLaunch?.disposeReplay();
   const requestId = ++state.requestId;
   state.hls?.destroy();
@@ -801,6 +801,10 @@ async function selectCase(caseId) {
     if(saved?.objectUrl){if(requestId!==state.requestId){URL.revokeObjectURL(data.video_url);return;}state.recordingUrl=data.video_url;}
     if (requestId !== state.requestId) return;
     renderDetail(data);
+    if(resume){
+      const video=document.querySelector('#case-video');
+      if(video){const restore=()=>{video.currentTime=Math.max(0,Math.min(Number(resume.at)||0,caseDuration(data)));if(resume.playing)video.play().catch(()=>{});};if(video.readyState>=1)restore();else video.addEventListener('loadedmetadata',restore,{once:true});}
+    }
     document.querySelector("#connection-status").textContent = "分析结果已连接";
   } catch (error) {
     if (requestId !== state.requestId) return;

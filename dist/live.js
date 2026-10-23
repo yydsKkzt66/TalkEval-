@@ -662,7 +662,8 @@
     const at = elapsed(), metrics = snapshotMetrics();
     const start = state.speechWindowStart === null ? null : Math.max(state.lastSegmentEnd, state.speechWindowStart);
     const end = Math.min(at, state.speechWindowEnd ?? at);
-    const timed = source === "browser-asr" && start !== null && end > start && at - end < 3;
+    const timed = source === "browser-asr" && start !== null && end > start && at - end < 3 &&
+      TalkEvalLaunch.validSpeechTiming({source,time_span:[start,end],timingQuality:'browser-estimate',text:clean});
     const segment = { at: Number(at.toFixed(2)), text: clean, source, voice: metrics, visual: currentVisualCue(),
       time_span: timed ? [Number(start.toFixed(2)), Number(end.toFixed(2))] : null,
       timingQuality: timed ? "browser-estimate" : source === "manual" ? "manual" : "unknown",

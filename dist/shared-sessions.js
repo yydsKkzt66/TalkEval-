@@ -9,8 +9,8 @@
   async function request(path,options={}) {
     if(!configured)throw Error('共享后台尚未接入。GitHub 页面只托管网页，当前记录仅在本机；请先配置团队共享服务。');
     const method=options.method || 'GET',headers=new Headers(options.headers || {}),match=path.match(/^\/api\/sessions\/([^/]+)/);
-    if(match && ['PUT','DELETE'].includes(method))headers.set('X-Session-Key',ownerKey(decodeURIComponent(match[1]),method==='PUT'));
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+    if(match && ['PUT','POST','DELETE'].includes(method))headers.set('X-Session-Key',ownerKey(decodeURIComponent(match[1]),method==='PUT'));
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),options.timeoutMs || 45000);
     try {
       const response=await fetch(url(path),{...options,headers,signal:controller.signal,credentials:'omit',cache:'no-store',mode:'cors'});
       if(!response.ok){let reason=`共享服务返回 ${response.status}`;try{reason=(await response.json()).error || reason;}catch{}const error=Error(reason);error.status=response.status;throw error;}
@@ -36,15 +36,33 @@
     if(session.cloudStored && session.cloudVideoReady)videoUrl=url(`/api/sessions/${encodeURIComponent(session.id)}/video`);
     else if(session.videoSaved){const blob=await bridge.recording(session);if(blob){videoUrl=URL.createObjectURL(blob);objectUrl=true;}}
     const duration=Math.max(1,(session.endedAt-session.startedAt)/1000);
-    const data=TalkEvalLaunch.liveData({session,points:session.points || [],analysisAudio:session.audio || [],visualWindow:savedVisuals(session)},duration);
+    let analysis={status:'local_only',message:'本场尚未共享，先保存并同步录像后可补做音轨转写'};
+    if(session.cloudStored && session.cloudVideoReady){
+      try{analysis=await (await request(`/api/sessions/${encodeURIComponent(session.id)}/analysis`,{timeoutMs:8000})).json();}
+      catch(error){analysis={status:'unavailable',message:error.status===404?'共享主机尚未更新录像转写服务':'暂时无法读取音轨补转写，正在使用原场转写'};}
+    }
+    const derived=analysis.status==='ready' && Array.isArray(analysis.segments) && analysis.segments.length>0;
+    // Original report and transcript remain archived. Only the replay view uses the derived track.
+    const observed=derived?{...session,segments:analysis.segments}:session;
+    const data=TalkEvalLaunch.liveData({session:observed,points:session.points || [],analysisAudio:session.audio || [],visualWindow:savedVisuals(session)},duration);
     data.case_id=id;data.intent_map.title=session.topic;data.intent_map.language=session.language || session.monitorF8?.language || 'zh';
     data.intent_map.review_status='provisional';data.review_status='provisional';data.video_url=videoUrl;data.video_format='webm';
     data.metadata={topic:session.topic,speaker_id:session.speakerId,script_source:'saved_live_session',can_evaluate_original_intent:true,permission_verified:true,permission_evidence:'演讲者选择保存并共享'};
-    data.run_metadata={asr_backend:'现场转写（含手动补充）',semantic_backend:'文字匹配参考'};
+    data.run_metadata={asr_backend:derived?'录像音轨补转写 · Whisper small':'现场转写（含手动补充）',semantic_backend:'文字匹配参考'};
     data.saved_report=session.report || '本场未保存报告正文。';
     data.saved_monitor=session.monitorF8 || null;
-    data.saved_session={id:session.id,assets:assets(session),expressionGoal:session.expressionGoal || '',timeline:session.timeline || [],slides:session.slides || [],contextFits:session.contextFits || [],fastReminders:session.monitorF8?.fastReminders || []};
+    data.saved_session={id:session.id,assets:assets(session),expressionGoal:session.expressionGoal || '',timeline:session.timeline || [],slides:session.slides || [],contextFits:session.contextFits || [],fastReminders:session.monitorF8?.fastReminders || [],analysis,derived,originalSegments:session.segments || []};
     data.alignment={decisions:data.intent_map.beats.map(b=>{const point=session.points.find(p=>p.id===b.beat_id),ids=(point?.evidence || []).map(e=>data.expression_map.units.find(u=>u.text===e.text)?.observed_id).filter(Boolean),units=data.expression_map.units.filter(u=>ids.includes(u.observed_id));return {beat_id:b.beat_id,verdict:ids.length?'partially_realized':'not_realized',actual_time_span:units.length?[Math.min(...units.map(u=>u.time_span[0])),Math.max(...units.map(u=>u.time_span[1]))]:null,matched_observed_ids:ids,evidence_ids:ids,reason:'现场保存的提纲与转写线索，完整含义请结合录像复核。'};})};
+    if(derived){
+      const E=window.StageEngine,plan=E.defaultPlan(data,data.saved_monitor?.limit || duration),result=E.evaluate(data,duration,plan,data.saved_monitor?.limit || duration);
+      data.alignment.decisions=result.beats.map(b=>{
+        const matched=b.claims.filter(c=>c.score>=.3 && c.evidence),units=data.expression_map.units.filter(u=>matched.some(c=>u.time_span[0]>=c.start && u.time_span[1]<=c.end));
+        return {beat_id:b.id,verdict:E.complete(b)?'sufficiently_realized':units.length?'partially_realized':'not_realized',
+          actual_time_span:units.length?[units[0].time_span[0],units.at(-1).time_span[1]]:null,
+          matched_observed_ids:units.map(u=>u.observed_id),evidence_ids:units.map(u=>u.observed_id),
+          reason:'根据录像音轨补转写重新匹配；识别可能出错，数字、专名和完整含义请回看核对。'};
+      });
+    }
     return {data,objectUrl,session};
   }
   window.TalkEvalShared={url,request,ownerKey,canManage:id=>Boolean(ownerKey(id)),bind,publish,summary,loadCase,caseId,assets,savedVisuals,
